@@ -51,6 +51,19 @@ export default function Home() {
     }
   };
 
+  const formatTimestamp = (timestamp: string) => {
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) {
+        return 'Invalid date';
+      }
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Invalid date';
+    }
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
@@ -81,8 +94,14 @@ export default function Home() {
 
       const data = await response.json();
       if (data.status === 'success') {
-        setMessages(prev => [...prev, data.message]);
+        setMessages(prev => [...prev, {
+          username: localStorage.getItem('username') || 'Unknown',
+          message: newMessage,
+          timestamp: new Date().toISOString()
+        }]);
         setNewMessage('');
+      } else {
+        console.error('Error sending message:', data.error);
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -179,7 +198,7 @@ export default function Home() {
                   <div className="font-semibold text-sm mb-1">{msg.username}</div>
                   <div className="text-sm">{msg.message}</div>
                   <div className="text-xs text-gray-500 mt-1">
-                    {new Date(msg.timestamp).toLocaleTimeString()}
+                    {formatTimestamp(msg.timestamp)}
                   </div>
                 </div>
               </div>
