@@ -23,6 +23,12 @@ export default function Home() {
       return;
     }
     fetchMessages();
+    
+    // Set up polling for new messages every 3 seconds
+    const pollInterval = setInterval(fetchMessages, 3000);
+    
+    // Cleanup interval on component unmount
+    return () => clearInterval(pollInterval);
   }, [router]);
 
   const scrollToBottom = () => {
