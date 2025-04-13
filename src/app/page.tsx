@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 
 const inter = Inter({ subsets: ['latin'] });
 
+// Use relative URLs for API requests to leverage Next.js rewrites
 const API_BASE = '/api';
 
 interface Message {
@@ -37,7 +38,60 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-  // ... existing useEffect and utility functions ...
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const fetchMessages = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/messages`);
+      if (response.ok) {
+        const data = await response.json();
+        setMessages(data);
+      } else if (response.status === 401) {
+        console.error('Authentication error when fetching messages');
+        // Don't log out here as GET messages doesn't require authentication
+      }
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+    }
+  };
+
+  useEffect(() => {
+    const storedToken = localStorage.getItem('token');
+    const storedUsername = localStorage.getItem('username');
+    console.log('Loading from localStorage - Token:', storedToken ? `${storedToken.substring(0, 10)}...` : 'None', 'Username:', storedUsername || 'None');
+    
+    if (storedToken && storedUsername) {
+      setToken(storedToken);
+      setUsername(storedUsername);
+      setIsLoggedIn(true);
+      console.log('User logged in from localStorage');
+    } else {
+      // Redirect to login page if not logged in
+      router.push('/login');
+    }
+  }, [router]);
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      const interval = setInterval(fetchMessages, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setToken('');
+    setUsername('');
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+    router.push('/login');
+  };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,7 +193,31 @@ export default function Home() {
     setReplyingTo(null);
   };
 
-  // ... rest of the existing code until the return statement ...
+  const onEmojiClick = (emojiData: EmojiClickData) => {
+    setNewMessage(prev => prev + emojiData.emoji);
+    setShowEmojiPicker(false);
+  };
+
+  const formatTimestamp = (timestamp: string) => {
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) {
+        return 'Invalid date';
+      }
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Invalid date';
+    }
+  };
+
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-100 to-purple-100 flex flex-col">
