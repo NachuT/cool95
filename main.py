@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 import mimetypes
 from PIL import Image
 import io
+import json
 
 load_dotenv()
 
@@ -337,6 +338,52 @@ def send_message():
         return jsonify({'status': 'success', 'message': 'Message sent successfully'})
     except Exception as e:
         print(f"Error in send_message: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/add-time', methods=['POST'])
+def add_time():
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data received'}), 400
+        
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({'error': 'No token provided'}), 401
+        
+        username = verify_token(token)
+        if not username:
+            return jsonify({'error': 'Invalid token'}), 401
+        
+        seconds = data.get('seconds', 0)
+        if not isinstance(seconds, int) or seconds <= 0:
+            return jsonify({'error': 'Invalid seconds value'}), 400
+        
+        # Get the user's current time from localStorage
+        try:
+            with open('cookies/working_time.json', 'r') as f:
+                working_data = json.load(f)
+                current_time = working_data.get('total_seconds', 0)
+        except (FileNotFoundError, json.JSONDecodeError):
+            current_time = 0
+        
+        # Add the new time
+        new_time = current_time + seconds
+        
+        # Update the working time file
+        with open('cookies/working_time.json', 'w') as f:
+            json.dump({
+                'last_check': datetime.now().timestamp(),
+                'total_seconds': new_time
+            }, f)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Added {seconds} seconds to your account',
+            'total_time': new_time
+        })
+    except Exception as e:
+        print(f"Error in add_time: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
