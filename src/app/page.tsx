@@ -8,7 +8,6 @@ import { useRouter } from 'next/navigation';
 
 const inter = Inter({ subsets: ['latin'] });
 
-// Use relative URLs for API requests to leverage Next.js rewrites
 const API_BASE = '/api';
 
 interface Message {
@@ -17,6 +16,12 @@ interface Message {
   message: string;
   type: string;
   timestamp: string;
+  replyTo?: {
+    id: string;
+    username: string;
+    message: string;
+    type: string;
+  };
 }
 
 export default function Home() {
@@ -27,64 +32,12 @@ export default function Home() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [token, setToken] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(() => {
-    const storedToken = localStorage.getItem('token');
-    const storedUsername = localStorage.getItem('username');
-    console.log('Loading from localStorage - Token:', storedToken ? `${storedToken.substring(0, 10)}...` : 'None', 'Username:', storedUsername || 'None');
-    
-    if (storedToken && storedUsername) {
-      setToken(storedToken);
-      setUsername(storedUsername);
-      setIsLoggedIn(true);
-      console.log('User logged in from localStorage');
-    } else {
-      // Redirect to login page if not logged in
-      router.push('/login');
-    }
-  }, [router]);
-
-  useEffect(() => {
-    if (isLoggedIn) {
-      const interval = setInterval(fetchMessages, 2000);
-      return () => clearInterval(interval);
-    }
-  }, [isLoggedIn]);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const fetchMessages = async () => {
-    try {
-      const response = await fetch(`${API_BASE}/messages`);
-      if (response.ok) {
-        const data = await response.json();
-        setMessages(data);
-      } else if (response.status === 401) {
-        console.error('Authentication error when fetching messages');
-        // Don't log out here as GET messages doesn't require authentication
-      }
-    } catch (error) {
-      console.error('Error fetching messages:', error);
-    }
-  };
-
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    setToken('');
-    setUsername('');
-    localStorage.removeItem('token');
-    localStorage.removeItem('username');
-    router.push('/login');
-  };
+  // ... existing useEffect and utility functions ...
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,17 +51,24 @@ export default function Home() {
         return;
       }
       
+      const messageData = {
+        message: newMessage,
+        type: 'text',
+        ...(replyingTo && { replyTo: replyingTo.id })
+      };
+      
       const response = await fetch(`${API_BASE}/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ message: newMessage, type: 'text' }),
+        body: JSON.stringify(messageData),
       });
       
       if (response.ok) {
         setNewMessage('');
+        setReplyingTo(null);
         fetchMessages();
       } else {
         const errorData = await response.json();
@@ -135,6 +95,9 @@ export default function Home() {
     setIsUploading(true);
     const formData = new FormData();
     formData.append('file', file);
+    if (replyingTo) {
+      formData.append('replyTo', replyingTo.id);
+    }
 
     try {
       console.log('Uploading image with token:', token);
@@ -153,6 +116,7 @@ export default function Home() {
 
       const data = await response.json();
       if (data.status === 'success') {
+        setReplyingTo(null);
         fetchMessages();
       } else {
         throw new Error('Upload failed');
@@ -162,36 +126,20 @@ export default function Home() {
       alert(error instanceof Error ? error.message : 'Failed to upload image');
     } finally {
       setIsUploading(false);
-      // Reset the file input
       e.target.value = '';
     }
   };
 
-  const onEmojiClick = (emojiData: EmojiClickData) => {
-    setNewMessage(prev => prev + emojiData.emoji);
-    setShowEmojiPicker(false);
+  const handleReply = (message: Message) => {
+    setReplyingTo(message);
+    document.getElementById('messageInput')?.focus();
   };
 
-  const formatTimestamp = (timestamp: string) => {
-    try {
-      const date = new Date(timestamp);
-      if (isNaN(date.getTime())) {
-        return 'Invalid date';
-      }
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } catch (error) {
-      console.error('Error formatting date:', error);
-      return 'Invalid date';
-    }
+  const cancelReply = () => {
+    setReplyingTo(null);
   };
 
-  if (!isLoggedIn) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
-      </div>
-    );
-  }
+  // ... rest of the existing code until the return statement ...
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-100 to-purple-100 flex flex-col">
@@ -228,20 +176,45 @@ export default function Home() {
                         : 'bg-gray-100 text-gray-900'
                     } transform transition-all hover:scale-[1.02]`}
                   >
+                    {msg.replyTo && (
+                      <div className={`mb-2 p-2 rounded-lg text-sm ${
+                        msg.username === username ? 'bg-indigo-700/50' : 'bg-gray-200'
+                      }`}>
+                        <div className="font-semibold">{msg.replyTo.username}</div>
+                        {msg.replyTo.type === 'image' ? (
+                          <div className="italic">📷 Image</div>
+                        ) : (
+                          <div className="truncate">{msg.replyTo.message}</div>
+                        )}
+                      </div>
+                    )}
                     <div className="text-sm opacity-75 mb-2">{msg.username}</div>
                     {msg.type === 'image' ? (
-                      <div className="relative w-64 h-64">
+                      <div className="relative">
                         <Image
                           src={`${API_BASE}/images/${msg.message}`}
                           alt="Uploaded image"
-                          fill
-                          className="object-cover rounded-lg"
+                          width={400}
+                          height={300}
+                          className="object-contain rounded-lg max-h-[300px] w-auto"
                         />
                       </div>
                     ) : (
                       <div className="break-words">{msg.message}</div>
                     )}
-                    <div className="text-xs mt-1 opacity-70">{formatTimestamp(msg.timestamp)}</div>
+                    <div className="flex items-center justify-between mt-2">
+                      <div className="text-xs opacity-70">{formatTimestamp(msg.timestamp)}</div>
+                      <button
+                        onClick={() => handleReply(msg)}
+                        className={`text-xs ${
+                          msg.username === username
+                            ? 'text-white/80 hover:text-white'
+                            : 'text-gray-500 hover:text-gray-700'
+                        } transition-colors`}
+                      >
+                        Reply
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -249,6 +222,24 @@ export default function Home() {
             </div>
 
             <div className="border-t p-4 bg-gray-50">
+              {replyingTo && (
+                <div className="mb-2 p-2 bg-gray-100 rounded-lg flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="text-sm text-gray-500">
+                      Replying to <span className="font-semibold">{replyingTo.username}</span>
+                    </div>
+                    <div className="text-sm truncate">
+                      {replyingTo.type === 'image' ? '📷 Image' : replyingTo.message}
+                    </div>
+                  </div>
+                  <button
+                    onClick={cancelReply}
+                    className="ml-2 text-gray-400 hover:text-gray-600"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
               <form onSubmit={handleSendMessage} className="flex items-center space-x-4">
                 <button
                   type="button"
@@ -274,10 +265,11 @@ export default function Home() {
                   />
                 </label>
                 <input
+                  id="messageInput"
                   type="text"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="Type a message..."
+                  placeholder={replyingTo ? `Reply to ${replyingTo.username}...` : "Type a message..."}
                   className="flex-1 px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
                 />
                 <button
