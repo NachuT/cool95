@@ -34,17 +34,93 @@ export default function Home() {
   const [token, setToken] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [remainingTime, setRemainingTime] = useState<number>(0);
+  const [isTimeExpired, setIsTimeExpired] = useState<boolean>(false);
+  const [isWorking, setIsWorking] = useState<boolean>(false);
+  const [workStartTime, setWorkStartTime] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
   const router = useRouter();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // Format time as MM:SS
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Start working to earn time
+  const startWorking = () => {
+    setIsWorking(true);
+    setWorkStartTime(Date.now());
+  };
+
+  // Stop working and add earned time
+  const stopWorking = () => {
+    if (workStartTime) {
+      const earnedSeconds = Math.floor((Date.now() - workStartTime) / 1000);
+      setRemainingTime(prev => prev + earnedSeconds);
+      setIsWorking(false);
+      setWorkStartTime(null);
+      
+      // Save the updated time to localStorage
+      localStorage.setItem('remainingTime', (remainingTime + earnedSeconds).toString());
+    }
+  };
+
+  // Check if user has time remaining
+  const checkTimeRemaining = () => {
+    const savedTime = localStorage.getItem('remainingTime');
+    if (savedTime) {
+      const time = parseInt(savedTime, 10);
+      setRemainingTime(time);
+      if (time <= 0) {
+        setIsTimeExpired(true);
+      }
+    }
+  };
+
+  // Timer effect to count down remaining time
+  useEffect(() => {
+    if (isLoggedIn && remainingTime > 0 && !isTimeExpired) {
+      timerRef.current = setInterval(() => {
+        setRemainingTime(prev => {
+          const newTime = prev - 1;
+          if (newTime <= 0) {
+            setIsTimeExpired(true);
+            localStorage.setItem('remainingTime', '0');
+            return 0;
+          }
+          localStorage.setItem('remainingTime', newTime.toString());
+          return newTime;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [isLoggedIn, remainingTime, isTimeExpired]);
+
+  // Check for remaining time on initial load
+  useEffect(() => {
+    checkTimeRemaining();
+  }, []);
+
   const fetchMessages = async () => {
     try {
-      const response = await fetch(`${API_BASE}/messages`);
+      const response = await fetch(`${API_BASE}/messages`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
       if (response.ok) {
         const data = await response.json();
         setMessages(data);
@@ -67,6 +143,8 @@ export default function Home() {
       setUsername(storedUsername);
       setIsLoggedIn(true);
       console.log('User logged in from localStorage');
+      // Fetch messages immediately after setting token
+      fetchMessages();
     } else {
       // Redirect to login page if not logged in
       router.push('/login');
@@ -74,11 +152,11 @@ export default function Home() {
   }, [router]);
 
   useEffect(() => {
-    if (isLoggedIn) {
+    if (isLoggedIn && !isTimeExpired) {
       const interval = setInterval(fetchMessages, 2000);
       return () => clearInterval(interval);
     }
-  }, [isLoggedIn]);
+  }, [isLoggedIn, isTimeExpired]);
 
   useEffect(() => {
     scrollToBottom();
@@ -96,6 +174,10 @@ export default function Home() {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim()) return;
+    if (isTimeExpired) {
+      alert('Your time has expired. Please work to earn more time.');
+      return;
+    }
 
     try {
       console.log('Sending message with token:', token ? `${token.substring(0, 10)}...` : 'None');
@@ -145,6 +227,10 @@ export default function Home() {
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (isTimeExpired) {
+      alert('Your time has expired. Please work to earn more time.');
+      return;
+    }
 
     setIsUploading(true);
     const formData = new FormData();
@@ -185,6 +271,10 @@ export default function Home() {
   };
 
   const handleReply = (message: Message) => {
+    if (isTimeExpired) {
+      alert('Your time has expired. Please work to earn more time.');
+      return;
+    }
     setReplyingTo(message);
     document.getElementById('messageInput')?.focus();
   };
@@ -219,6 +309,46 @@ export default function Home() {
     );
   }
 
+  if (isTimeExpired) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-indigo-100 to-purple-100 flex flex-col items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
+          <h2 className="text-2xl font-bold text-red-600 mb-4">Time Expired</h2>
+          <p className="text-gray-700 mb-6">
+            You've used all your available time. Work to earn more time to continue using the app.
+          </p>
+          <div className="flex flex-col space-y-4">
+            <button
+              onClick={startWorking}
+              disabled={isWorking}
+              className={`py-3 px-6 rounded-lg font-medium ${
+                isWorking
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-green-600 text-white hover:bg-green-700'
+              }`}
+            >
+              {isWorking ? 'Working...' : 'Start Working'}
+            </button>
+            {isWorking && (
+              <button
+                onClick={stopWorking}
+                className="py-3 px-6 rounded-lg font-medium bg-blue-600 text-white hover:bg-blue-700"
+              >
+                Stop Working
+              </button>
+            )}
+            <button
+              onClick={handleLogout}
+              className="py-3 px-6 rounded-lg font-medium bg-gray-200 text-gray-800 hover:bg-gray-300"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-100 to-purple-100 flex flex-col">
       <div className="bg-white shadow-lg">
@@ -227,6 +357,24 @@ export default function Home() {
             Chat App
           </h1>
           <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <span className="text-gray-600">Time remaining:</span>
+              <span className={`font-bold ${remainingTime < 60 ? 'text-red-600' : 'text-green-600'}`}>
+                {formatTime(remainingTime)}
+              </span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={isWorking ? stopWorking : startWorking}
+                className={`py-1 px-3 rounded-lg text-sm font-medium ${
+                  isWorking
+                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                    : 'bg-green-600 text-white hover:bg-green-700'
+                }`}
+              >
+                {isWorking ? 'Stop Working' : 'Work'}
+              </button>
+            </div>
             <span className="text-gray-600">Welcome, {username}!</span>
             <button
               onClick={handleLogout}
